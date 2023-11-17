@@ -1,6 +1,6 @@
 import pandas as pd
 from utilities.pricelabs_utils import get_airbnb_title
-
+from tqdm import tqdm
 
 # Load the CSV data into a pandas DataFrame
 comps_df = pd.read_csv("data/ListingComps.csv")
@@ -33,9 +33,20 @@ comps_filtered = comps_df[
 comps_filtered = comps_filtered.sort_values(by="Revenue", ascending=False)
 
 # Get the Airbnb titles for each listing
+tqdm.pandas(desc="Fetching Titles", bar_format="\033[94;1m{l_bar}{bar}|\033[0m")
 comps_filtered["Listing Title"] = comps_filtered["Link"].progress_apply(
     get_airbnb_title
 )
 
 # Filter out rows with 'Listing Title' = 'N/A'
 comps_filtered = comps_filtered[comps_filtered["Listing Title"] != "N/A"]
+comps_filtered.to_csv("data/CompsFiltered.csv", index=False, mode="w")
+
+bedroom_dataframes = {}
+
+# Iterate over each unique value in the 'Bedroom' column
+for n in comps_df["Bedrooms"].unique():
+    # Filter the DataFrame and store it in the dictionary
+    bedroom_dataframes[n] = comps_df[comps_df["Bedrooms"] <= n].sort_values(
+        by="Revenue", ascending=False
+    )

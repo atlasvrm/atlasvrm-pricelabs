@@ -1,8 +1,23 @@
 import geopandas as gpd
+import os
 from shapely.geometry import Point
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
+import io
+import base64
+import dash_bootstrap_components as dbc
+import aiohttp
+import asyncio
+from tqdm import tqdm
+from threading import Thread
+
+
+def run_async_tasks(comps_df):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(fetch_all_titles(comps_df))
+    loop.close()
 
 
 def spatial_join_with_shp(csv_filepath, shp_filepath, output_filepath):
@@ -38,17 +53,105 @@ def spatial_join_with_shp(csv_filepath, shp_filepath, output_filepath):
     result.to_csv(output_filepath, index=False)
 
 
-def get_airbnb_title(page_url):
-    """Extracts HTML from a webpage and gets the title."""
+async def get_airbnb_title_with_hyperlink(url):
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            content = await response.text()
+            soup = BeautifulSoup(content, features="html.parser")
+            title_tag = soup.find("meta", property="og:description")
+            title = title_tag["content"] if title_tag else "N/A"
+            return f"[{title}]({url})" if title != "N/A" else "N/A"
+
+
+async def fetch_all_titles(df):
+    tasks = [
+        asyncio.create_task(get_airbnb_title_with_hyperlink(url)) for url in df["Link"]
+    ]
+    hyperlinks = await asyncio.gather(*tasks)
+    df["Listing Title"] = hyperlinks
+    return df
+
+
+def parse_contents(contents, filename):
+    content_type, content_string = contents.split(",")
+    decoded = base64.b64decode(content_string)
     try:
-        answer = requests.get(page_url)
-        content = answer.content
-        soup = BeautifulSoup(content, features="html.parser")
-        title1 = soup.find("meta", property="og:description")
-        if title1 is not None and "content" in title1.attrs:
-            listing_name = title1["content"]
-        else:
-            listing_name = "N/A"  # Set a default value if the title is not found
+        if "csv" in filename:
+            # Assume that the user uploaded a CSV file
+            return pd.read_csv(io.StringIO(decoded.decode("utf-8")))
     except Exception as e:
-        listing_name = "N/A"  # Set a default value if any exception occurs
-    return listing_name
+        print(e)
+        return dbc.Alert("There was an error processing this file.", color="danger")
+
+
+def process_uploaded_files(comps_contents, comps_filename, market_dir):
+    # Save raw files
+    raw_comps_path = os.path.join(market_dir, "raw_comps.csv")
+    save_raw_file(comps_contents, raw_comps_path)
+
+    # Process files
+    comps_df = parse_contents(comps_contents, comps_filename)
+
+    return comps_df
+
+
+def create_bedroom_dfs(df):
+    bedroom_dataframes = {}
+    for n in df["Bedrooms"].unique():
+        bedroom_dataframes[n] = df[df["Bedrooms"] <= n].sort_values(
+            by="Revenue", ascending=False
+        )
+    return bedroom_dataframes
+
+
+def create_directory(path):
+    if not os.path.exists(path):
+        os.makedirs(path)
+
+
+def save_raw_file(contents, filepath):
+    decoded_contents = base64.b64decode(contents.split(",")[1])
+    with open(filepath, "wb") as f:
+        f.write(decoded_contents)
+
+
+def process_comps(
+    comps_df, min_rating, min_reviews, min_revenue, min_occupancy, min_active_nights
+):
+    # Convert 'Star Rating' to numeric and drop NA values
+    comps_df["Star Rating"] = pd.to_numeric(comps_df["Star Rating"], errors="coerce")
+    comps_df.dropna(subset=["Star Rating"], inplace=True)
+
+    # Remove rows where "Star Rating" equals "#NAME?"
+    comps_df = comps_df[comps_df["Star Rating"] != "#NAME?"]
+
+    # Apply filters using .loc for safe modification
+    condition = (
+        (comps_df["Star Rating"] >= min_rating)
+        & (comps_df["Reviews"] >= min_reviews)
+        & (comps_df["Revenue"] >= min_revenue)
+        & (comps_df["Occupancy"] >= min_occupancy)
+        & (comps_df["Active Nights"] >= min_active_nights)
+    )
+    filtered_df = comps_df.loc[condition].copy()
+
+    # Define a function to run the async task
+    def run_async(loop, df):
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(fetch_all_titles(df))
+
+    # Create a new event loop for the thread
+    loop = asyncio.new_event_loop()
+
+    # Run async tasks in a background thread
+    thread = Thread(target=run_async, args=(loop, filtered_df))
+    thread.start()
+    thread.join()  # This will block until the async task is done
+
+    # Continue processing after async tasks are complete
+    filtered_df.sort_values(by="Revenue", ascending=False, inplace=True)
+
+    # Create bedroom DataFrames, if needed
+    bedrooms_dfs = create_bedroom_dfs(filtered_df)
+
+    return filtered_df, bedrooms_dfs
