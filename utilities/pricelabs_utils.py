@@ -1,16 +1,29 @@
 import geopandas as gpd
+
 import os
+from dash import dash_table
+from dash.dash_table import FormatTemplate
 from shapely.geometry import Point
 import pandas as pd
-import requests
 from bs4 import BeautifulSoup
 import io
 import base64
 import dash_bootstrap_components as dbc
 import aiohttp
 import asyncio
-from tqdm import tqdm
 from threading import Thread
+
+
+def create_columns(df):
+    return [
+        {
+            "name": i,
+            "id": i,
+            "type": "text",
+            "presentation": "markdown" if i == "Listing Title" else None,
+        }
+        for i in df.columns
+    ]
 
 
 def run_async_tasks(comps_df):
@@ -85,6 +98,9 @@ def parse_contents(contents, filename):
 
 
 def process_uploaded_files(comps_contents, comps_filename, market_dir):
+    if not os.path.exists(market_dir):
+        os.makedirs(market_dir)
+
     # Save raw files
     raw_comps_path = os.path.join(market_dir, "raw_comps.csv")
     save_raw_file(comps_contents, raw_comps_path)
@@ -93,20 +109,6 @@ def process_uploaded_files(comps_contents, comps_filename, market_dir):
     comps_df = parse_contents(comps_contents, comps_filename)
 
     return comps_df
-
-
-def create_bedroom_dfs(df):
-    bedroom_dataframes = {}
-    for n in df["Bedrooms"].unique():
-        bedroom_dataframes[n] = df[df["Bedrooms"] <= n].sort_values(
-            by="Revenue", ascending=False
-        )
-    return bedroom_dataframes
-
-
-def create_directory(path):
-    if not os.path.exists(path):
-        os.makedirs(path)
 
 
 def save_raw_file(contents, filepath):
@@ -119,12 +121,16 @@ def process_comps(
     comps_df, min_rating, min_reviews, min_revenue, min_occupancy, min_active_nights
 ):
     # Convert 'Star Rating' to numeric and drop NA values
+
     comps_df["Star Rating"] = pd.to_numeric(comps_df["Star Rating"], errors="coerce")
     comps_df.dropna(subset=["Star Rating"], inplace=True)
 
     # Remove rows where "Star Rating" equals "#NAME?"
     comps_df = comps_df[comps_df["Star Rating"] != "#NAME?"]
 
+    # Convert Occupancy to decimal
+    comps_df["Occupancy"] = comps_df["Occupancy"] / 100
+    print("comps_df: ", comps_df)
     # Apply filters using .loc for safe modification
     condition = (
         (comps_df["Star Rating"] >= min_rating)
@@ -134,6 +140,7 @@ def process_comps(
         & (comps_df["Active Nights"] >= min_active_nights)
     )
     filtered_df = comps_df.loc[condition].copy()
+    print("filtered_df", filtered_df)
 
     # Define a function to run the async task
     def run_async(loop, df):
@@ -151,7 +158,31 @@ def process_comps(
     # Continue processing after async tasks are complete
     filtered_df.sort_values(by="Revenue", ascending=False, inplace=True)
 
-    # Create bedroom DataFrames, if needed
-    bedrooms_dfs = create_bedroom_dfs(filtered_df)
+    return filtered_df
 
-    return filtered_df, bedrooms_dfs
+
+def create_br_dt(tab_id):
+    return dash_table.DataTable(
+        id=f"{tab_id}-table",
+        style_cell={"textAlign": "center"},
+        columns=[
+            {
+                "name": "Listing Title",
+                "id": "Listing Title",
+                "type": "text",
+                "presentation": "markdown",
+            },
+            {
+                "name": "Revenue",
+                "id": "Revenue",
+                "type": "numeric",
+                "format": FormatTemplate.money(0),
+            },
+            {
+                "name": "Occupancy",
+                "id": "Occupancy",
+                "type": "numeric",
+                "format": FormatTemplate.percentage(0),
+            },
+        ],
+    )
