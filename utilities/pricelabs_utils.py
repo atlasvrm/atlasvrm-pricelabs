@@ -14,6 +14,17 @@ import asyncio
 from threading import Thread
 
 
+def get_market_names():
+    market_dir = "Markets/"
+    if not os.path.exists(market_dir):
+        os.makedirs(market_dir)
+    return [
+        name
+        for name in os.listdir(market_dir)
+        if os.path.isdir(os.path.join(market_dir, name))
+    ]
+
+
 def create_br_dt(tab_id):
     return dash_table.DataTable(
         id=f"{tab_id}-table",
@@ -163,7 +174,6 @@ def process_comps(
 
     # Convert Occupancy to decimal
     comps_df["Occupancy"] = comps_df["Occupancy"] / 100
-    print("comps_df: ", comps_df)
     # Apply filters using .loc for safe modification
     condition = (
         (comps_df["Star Rating"] >= min_rating)
@@ -173,7 +183,6 @@ def process_comps(
         & (comps_df["Active Nights"] >= min_active_nights)
     )
     filtered_df = comps_df.loc[condition].copy()
-    print("filtered_df", filtered_df)
 
     # Define a function to run the async task
     def run_async(loop, df):

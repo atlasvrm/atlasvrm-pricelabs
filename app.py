@@ -10,6 +10,7 @@ from utilities.pricelabs_utils import (
     process_uploaded_files,
     create_br_dt,
     create_columns,
+    get_market_names,
 )
 from dash.exceptions import PreventUpdate
 
@@ -27,6 +28,10 @@ MIN_REVENUE = 10000
 MIN_OCCUPANCY = 0.30
 MIN_ACTIVE_NIGHTS = 180
 
+market_names = get_market_names()
+market_dropdown_options = [{"label": name, "value": name} for name in market_names]
+market_dropdown_options.append({"label": "Add New Market...", "value": "new_market"})
+
 # Lists for tab properties
 labels = ["Raw Comps", "Raw Trends", "Market Summary"] + [
     f"{i}BR Comps" for i in range(2, 7)
@@ -35,7 +40,15 @@ tab_ids = ["raw-comps", "raw-trends", "market-summary"] + [
     f"{i}br-comps" for i in range(2, 7)
 ]
 contents = [
-    dash_table.DataTable(id="comps-table", style_cell={"textAlign": "center"}),
+    dash_table.DataTable(
+        id="comps-table",
+        filter_action="native",
+        sort_action="native",
+        sort_mode="multi",
+        column_selectable="multi",
+        row_selectable="multi",
+        style_cell={"textAlign": "center"},
+    ),
     None,  # Replace with actual content for "Raw Trends"
     None,  # Replace with actual content for "Market Summary"
 ] + [create_br_dt(f"{i}br-comps") for i in range(2, 7)]
@@ -53,13 +66,28 @@ app.layout = dbc.Container(
         dbc.Row(
             [
                 dbc.Col(
-                    dcc.Input(
-                        id="input-market-name",
-                        type="text",
-                        placeholder="Enter Market Name",
-                        value="",
-                        style={"width": "100%"},
-                    ),
+                    [
+                        dcc.Dropdown(
+                            id="input-market-name",
+                            options=market_dropdown_options,
+                            value=market_names[0] if market_names else "new_market",
+                            style={"width": "100%"},
+                        ),
+                        html.Div(
+                            [
+                                dcc.Input(
+                                    id="new-market-name",
+                                    type="text",
+                                    placeholder="Enter new market name",
+                                ),
+                                html.Button(
+                                    "Submit", id="submit-new-market", n_clicks=0
+                                ),
+                            ],
+                            id="new-market-name-input",
+                            style={"display": "none"},
+                        ),
+                    ],
                     width=6,
                 ),
             ]
@@ -96,6 +124,50 @@ app.layout = dbc.Container(
 
 
 @app.callback(
+    [
+        Output("input-market-name", "options"),
+        Output("input-market-name", "value"),
+        Output("new-market-name-input", "style"),
+    ],
+    [Input("submit-new-market", "n_clicks"), Input("input-market-name", "value")],
+    [State("new-market-name", "value"), State("input-market-name", "options")],
+)
+def handle_market_input_and_visibility(
+    n_clicks, dropdown_value, new_market_name, current_options
+):
+    ctx = dash.callback_context
+    triggered_id = ctx.triggered[0]["prop_id"].split(".")[0]
+
+    input_style = {"display": "none"}  # Default style to hide new market input
+    updated_options = current_options  # Default to current options
+    updated_value = dash.no_update  # Keep current value by default
+
+    if triggered_id == "submit-new-market" and n_clicks > 0:
+        if new_market_name and new_market_name not in [
+            opt["value"] for opt in current_options
+        ]:
+            # Create new market folder
+            new_market_dir = os.path.join("Markets", new_market_name)
+            os.makedirs(new_market_dir, exist_ok=True)
+
+            # Update dropdown options
+            updated_options = [
+                {"label": name, "value": name} for name in get_market_names()
+            ]
+            updated_options.append(
+                {"label": "Add New Market...", "value": "new_market"}
+            )
+
+            # Update dropdown value to the newly created market
+            updated_value = new_market_name
+
+    elif triggered_id == "input-market-name" and dropdown_value == "new_market":
+        input_style = {"display": "block"}
+
+    return updated_options, updated_value, input_style
+
+
+@app.callback(
     Output("comps-table", "data"),
     Output("comps-table", "columns"),
     Input("upload-comps", "contents"),
@@ -103,25 +175,20 @@ app.layout = dbc.Container(
     State("input-market-name", "value"),
 )
 def update_and_initialize(comps_contents, comps_filename, input_market_name):
-    print("comps_contents", comps_contents)
     if not comps_contents:
         return [], []
 
     market_dir = os.path.join("Markets", input_market_name)
     processed_filepath = os.path.join(market_dir, "processed_comps.csv")
-    print("Processed Filepath:", processed_filepath)
     comps_df = process_uploaded_files(comps_contents, comps_filename, market_dir)
-    print("comps_df", comps_df)
     comps_processed = process_comps(
         comps_df, MIN_RATING, MIN_REVIEWS, MIN_REVENUE, MIN_OCCUPANCY, MIN_ACTIVE_NIGHTS
     )
-    print("comps_processed", comps_processed)
 
     comps_processed.to_csv(processed_filepath, index=False)
 
     comps_columns = create_columns(comps_processed)
     comps_data = comps_processed.to_dict("records")
-    print("comps_data", comps_data)
 
     return comps_data, comps_columns
 
