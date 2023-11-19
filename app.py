@@ -2,6 +2,7 @@ import dash
 import os
 import logging
 import pandas as pd
+from dash import callback_context
 import dash_bootstrap_components as dbc
 from dash import html, dcc, dash_table
 from dash.dependencies import Input, Output, State
@@ -129,19 +130,24 @@ app.layout = dbc.Container(
         Output("input-market-name", "value"),
         Output("new-market-name-input", "style"),
     ],
-    [Input("submit-new-market", "n_clicks"), Input("input-market-name", "value")],
-    [State("new-market-name", "value"), State("input-market-name", "options")],
+    [
+        Input("submit-new-market", "n_clicks"),
+        Input("input-market-name", "value"),
+    ],
+    [
+        State("new-market-name", "value"),
+        State("input-market-name", "options"),
+    ],
 )
-def handle_market_input_and_visibility(
-    n_clicks, dropdown_value, new_market_name, current_options
-):
-    ctx = dash.callback_context
-    triggered_id = ctx.triggered[0]["prop_id"].split(".")[0]
-
+def handle_market_changes(n_clicks, dropdown_value, new_market_name, current_options):
+    # Initialize default return values
     input_style = {"display": "none"}  # Default style to hide new market input
     updated_options = current_options  # Default to current options
     updated_value = dash.no_update  # Keep current value by default
 
+    triggered_id = callback_context.triggered[0]["prop_id"].split(".")[0]
+
+    # Handle new market submission
     if triggered_id == "submit-new-market" and n_clicks > 0:
         if new_market_name and new_market_name not in [
             opt["value"] for opt in current_options
@@ -161,8 +167,10 @@ def handle_market_input_and_visibility(
             # Update dropdown value to the newly created market
             updated_value = new_market_name
 
-    elif triggered_id == "input-market-name" and dropdown_value == "new_market":
-        input_style = {"display": "block"}
+    # Handle dropdown value change
+    elif triggered_id == "input-market-name":
+        if dropdown_value == "new_market":
+            input_style = {"display": "block"}
 
     return updated_options, updated_value, input_style
 
