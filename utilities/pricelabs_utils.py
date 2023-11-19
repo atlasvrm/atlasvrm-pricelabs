@@ -21,8 +21,7 @@ def create_br_dt(tab_id):
         style_data_conditional=[
             {
                 "if": {"column_id": "Listing Title"},
-                "textAlign": "center",
-                "className": "center",
+                "className": "markdown-cell",
             }
         ],
         columns=[
