@@ -1,6 +1,7 @@
 import dash
 import os
 import logging
+import pandas as pd
 import dash_bootstrap_components as dbc
 from dash import html, dcc, dash_table
 from dash.dependencies import Input, Output, State
@@ -26,15 +27,25 @@ MIN_REVENUE = 10000
 MIN_OCCUPANCY = 0.30
 MIN_ACTIVE_NIGHTS = 180
 
-# Create a list of tabs for different bedroom counts using a for loop
-bedroom_tabs = []
-for i in range(2, 7):
-    tab = dbc.Tab(
-        label=f"{i}BR Comps",
-        tab_id=f"{i}br-comps",
-        children=[create_br_dt(f"{i}br-comps")],
-    )
-    bedroom_tabs.append(tab)
+# Lists for tab properties
+labels = ["Raw Comps", "Raw Trends", "Market Summary"] + [
+    f"{i}BR Comps" for i in range(2, 7)
+]
+tab_ids = ["raw-comps", "raw-trends", "market-summary"] + [
+    f"{i}br-comps" for i in range(2, 7)
+]
+contents = [
+    dash_table.DataTable(id="comps-table", style_cell={"textAlign": "center"}),
+    None,  # Replace with actual content for "Raw Trends"
+    None,  # Replace with actual content for "Market Summary"
+] + [create_br_dt(f"{i}br-comps") for i in range(2, 7)]
+
+# Generate dbc.Tab components
+tabs = [
+    dbc.Tab(label=label, tab_id=tab_id, children=content)
+    for label, tab_id, content in zip(labels, tab_ids, contents)
+]
+
 
 # App layout using Dash Bootstrap Components
 app.layout = dbc.Container(
@@ -71,27 +82,7 @@ app.layout = dbc.Container(
             [
                 dbc.Col(
                     dbc.Tabs(
-                        [
-                            dbc.Tab(
-                                label="Raw Comps",
-                                tab_id="raw-comps",
-                                children=[
-                                    dash_table.DataTable(
-                                        id="comps-table",
-                                        style_cell={"textAlign": "center"},
-                                    )
-                                ],
-                            ),
-                            dbc.Tab(
-                                label="Raw Trends",
-                                tab_id="raw-trends",
-                            ),
-                            dbc.Tab(
-                                label="Market Summary",
-                                tab_id="market-summary",
-                            ),
-                        ]
-                        + bedroom_tabs,
+                        tabs,
                         id="tabs",
                         active_tab="raw-comps",
                     ),
@@ -133,6 +124,40 @@ def update_and_initialize(comps_contents, comps_filename, input_market_name):
     print("comps_data", comps_data)
 
     return comps_data, comps_columns
+
+
+# Callback to update the bedroom comps tables
+@app.callback(
+    [Output(f"{i}br-comps-table", "data") for i in range(2, 7)],
+    [
+        Input("comps-table", "data"),
+        Input("tabs", "active_tab"),
+    ],
+)
+def update_bedroom_comps_tables(comps_data, active_tab):
+    try:
+        # Check if the active tab is one of the bedroom comps tabs
+        if comps_data and active_tab.endswith("br-comps"):
+            bedroom_count = int(active_tab[0])
+            bedroom_df = pd.DataFrame(comps_data)
+            filtered_data = (
+                bedroom_df[bedroom_df["Bedrooms"] <= bedroom_count]
+                .sort_values(by="Revenue", ascending=False)
+                .to_dict("records")
+            )
+
+            # Return the filtered data for each tab
+            return tuple(
+                filtered_data if str(i) in active_tab else [] for i in range(2, 7)
+            )
+
+    except Exception as e:
+        logging.error(f"Error: {e}", exc_info=True)
+        # Return empty data for each table in case of an error
+        return tuple([] for _ in range(2, 7))
+
+    # Return empty data for each table if the conditions are not met
+    return tuple([] for _ in range(2, 7))
 
 
 # Run the app

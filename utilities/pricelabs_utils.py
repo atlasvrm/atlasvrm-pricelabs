@@ -14,6 +14,40 @@ import asyncio
 from threading import Thread
 
 
+def create_br_dt(tab_id):
+    return dash_table.DataTable(
+        id=f"{tab_id}-table",
+        style_cell={"textAlign": "center"},
+        style_data_conditional=[
+            {
+                "if": {"column_id": "Listing Title"},
+                "textAlign": "center",
+                "className": "center",
+            }
+        ],
+        columns=[
+            {
+                "name": "Listing Title",
+                "id": "Listing Title",
+                "type": "text",
+                "presentation": "markdown",
+            },
+            {
+                "name": "Revenue",
+                "id": "Revenue",
+                "type": "numeric",
+                "format": FormatTemplate.money(0),
+            },
+            {
+                "name": "Occupancy",
+                "id": "Occupancy",
+                "type": "numeric",
+                "format": FormatTemplate.percentage(2),
+            },
+        ],
+    )
+
+
 def create_columns(df):
     return [
         {
