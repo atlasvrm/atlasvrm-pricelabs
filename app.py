@@ -183,22 +183,31 @@ def handle_market_changes(n_clicks, dropdown_value, new_market_name, current_opt
     State("input-market-name", "value"),
 )
 def update_and_initialize(comps_contents, comps_filename, input_market_name):
-    if not comps_contents:
-        return [], []
-
     market_dir = os.path.join("Markets", input_market_name)
     processed_filepath = os.path.join(market_dir, "processed_comps.csv")
-    comps_df = process_uploaded_files(comps_contents, comps_filename, market_dir)
-    comps_processed = process_comps(
-        comps_df, MIN_RATING, MIN_REVIEWS, MIN_REVENUE, MIN_OCCUPANCY, MIN_ACTIVE_NIGHTS
-    )
 
-    comps_processed.to_csv(processed_filepath, index=False)
+    # If new file is uploaded, process and save it
+    if comps_contents:
+        comps_df = process_uploaded_files(comps_contents, comps_filename, market_dir)
+        comps_processed = process_comps(
+            comps_df,
+            MIN_RATING,
+            MIN_REVIEWS,
+            MIN_REVENUE,
+            MIN_OCCUPANCY,
+            MIN_ACTIVE_NIGHTS,
+        )
+        comps_processed.to_csv(processed_filepath, index=False)
 
-    comps_columns = create_columns(comps_processed)
-    comps_data = comps_processed.to_dict("records")
+    # Load comps_df from processed_filepath if it exists
+    if os.path.exists(processed_filepath):
+        comps_df = pd.read_csv(processed_filepath)
+        comps_columns = create_columns(comps_df)
+        comps_data = comps_df.to_dict("records")
+        return comps_data, comps_columns
 
-    return comps_data, comps_columns
+    # Return empty data and columns if processed_filepath does not exist
+    return [], []
 
 
 # Callback to update the bedroom comps tables
